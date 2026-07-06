@@ -359,7 +359,7 @@ class FolderCreatorApp:
         reset_btn.pack(side="left", padx=(8, 0))
 
         export_btn = tk.Button(
-            btn_frame, text="💾  Export", font=self.font_button,
+            btn_frame, text="💾  Export (JSON)", font=self.font_button,
             bg=COLORS["accent_green"], fg="white", relief="flat",
             padx=16, pady=8, cursor="hand2", activebackground="#3aaa55",
             command=self._export_config
@@ -367,12 +367,28 @@ class FolderCreatorApp:
         export_btn.pack(side="left", padx=(8, 0))
 
         import_btn = tk.Button(
-            btn_frame, text="📂  Import", font=self.font_button,
+            btn_frame, text="📂  Import (JSON)", font=self.font_button,
             bg=COLORS["accent_orange"], fg="white", relief="flat",
             padx=16, pady=8, cursor="hand2", activebackground="#d08a40",
             command=self._import_config
         )
         import_btn.pack(side="left", padx=(8, 0))
+
+        export_xls_btn = tk.Button(
+            btn_frame, text="📊  Export (Excel)", font=self.font_button,
+            bg=COLORS["accent_purple"], fg="white", relief="flat",
+            padx=16, pady=8, cursor="hand2", activebackground="#8a6adf",
+            command=self._export_excel
+        )
+        export_xls_btn.pack(side="left", padx=(8, 0))
+
+        import_xls_btn = tk.Button(
+            btn_frame, text="📈  Import (Excel)", font=self.font_button,
+            bg="#2c8bc5", fg="white", relief="flat",
+            padx=16, pady=8, cursor="hand2", activebackground="#1e6e9d",
+            command=self._import_excel
+        )
+        import_xls_btn.pack(side="left", padx=(8, 0))
 
     # --- Company footer ---
     def _build_company_footer(self):
@@ -510,6 +526,114 @@ class FolderCreatorApp:
         except Exception as e:
             messagebox.showerror("Import Error", str(e))
             self.status_var.set("❌  Import failed")
+
+    def _export_excel(self):
+        """Export the current folder preview structure list to an Excel file."""
+        top_folders = self._get_selected_top_folders()
+        subfolders = self._get_selected_subfolders()
+        
+        if not top_folders:
+            messagebox.showwarning("Warning", "Nothing to export. Please select top-level folders.")
+            return
+
+        rows = []
+        no = 1
+        for top in top_folders:
+            rows.append({
+                "No.": no,
+                "Top-Level Folder": top,
+                "Subfolder Name": "",
+                "Full Path": top
+            })
+            no += 1
+            for sub in subfolders:
+                rows.append({
+                    "No.": no,
+                    "Top-Level Folder": top,
+                    "Subfolder Name": sub,
+                    "Full Path": os.path.join(top, sub)
+                })
+                no += 1
+
+        file_path = filedialog.asksaveasfilename(
+            title="Export to Excel",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            initialfile="folder_structure.xlsx"
+        )
+        if not file_path:
+            return
+        
+        try:
+            import pandas as pd
+            df = pd.DataFrame(rows)
+            df.to_excel(file_path, index=False)
+            self.status_var.set(f"💾  Exported Excel to {os.path.basename(file_path)}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
+            self.status_var.set("❌  Export to Excel failed")
+
+    def _import_excel(self):
+        """Import custom folder paths from an Excel file."""
+        file_path = filedialog.askopenfilename(
+            title="Import from Excel",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return
+
+        try:
+            import pandas as pd
+            df = pd.read_excel(file_path)
+            if df.empty:
+                messagebox.showwarning("Import Warning", "The selected Excel file is empty.")
+                return
+
+            # Determine which column to use: prefer "Path", "Folder Path", "Full Path", or first column
+            target_col = None
+            possible_names = ["path", "folder path", "full path", "folder", "top-level folder"]
+            for col in df.columns:
+                if str(col).lower() in possible_names:
+                    target_col = col
+                    break
+            if target_col is None:
+                target_col = df.columns[0]
+
+            imported_paths = df[target_col].dropna().astype(str).tolist()
+            
+            added_tops = 0
+            added_subs = 0
+            
+            for item in imported_paths:
+                item = item.strip()
+                if not item:
+                    continue
+                # Split path by slashes
+                parts = [p.strip() for p in item.replace("/", "\\").split("\\") if p.strip()]
+                if not parts:
+                    continue
+                
+                # First part is top level
+                top = parts[0]
+                if top not in self.custom_top_folders and top not in DEFAULT_TOP_FOLDERS:
+                    self.custom_top_folders.append(top)
+                    added_tops += 1
+                
+                # Remaining parts are subfolders
+                if len(parts) > 1:
+                    sub = "\\".join(parts[1:])
+                    if sub not in self.custom_subfolders and sub not in SUBFOLDER_TYPES:
+                        self.custom_subfolders.append(sub)
+                        added_subs += 1
+
+            self._refresh_custom_top_tags()
+            self._refresh_custom_sub_tags()
+            self._update_preview()
+            self.status_var.set(f"📂  Imported from Excel: added {added_tops} top, {added_subs} subfolders")
+            messagebox.showinfo("Import Success", f"Successfully imported paths from Excel.\nAdded {added_tops} top-level folders and {added_subs} subfolders.")
+        except Exception as e:
+            messagebox.showerror("Import Error", str(e))
+            self.status_var.set("❌  Import from Excel failed")
 
     def _apply_preset(self, name):
         top_folders, subfolders = PRESETS[name]
